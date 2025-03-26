@@ -1,0 +1,285 @@
+---
+title: "Impact evaluation with difference in differences"
+categories: ["diff in diff", "statistics", "econometry"]
+description: "Ilustrating Diff-in-Diff: the impact of building a trash incenerator on real estate appreciation"  
+date: 2025-03-26
+title-block-banner: true
+page-layout: article
+execute: 
+  message: false
+  warning: false
+format:
+  html:
+    code-fold: false
+    code-tools: true
+freeze: true
+image: image.png
+toc: true
+---
+
+### Introduction
+
+The **differences-in-differences** (DiD) is a statistical method that compares the **changes in outcomes** between a treatment group and a control group before and after an **intervention**. By examining how the gap between the two groups **evolve over time**, DiD helps **isolate the impact** of the intervention from other external factors that might affect the **outcome variable**.
+
+### Woolridge: the impact of building an trash incinerator on real state appreciation
+
+Woolridge (2023) simplified an econometric analysis by Kiel and MacClain (1995) that evaluated the influence the construction of a trash incinerator in North Andover on real estate appreciation. In 1978, there were rumors a new trash incinerator would be build, but construction only began in 1981, and operations started in 1985.
+
+The general hypothesis is that properties close to the incinerator (4.8 km radius) would be less valuable than more distant properties. Using the `woolridge` package, we will run a five-step analysis to verify the hypothesis suggested in the exercise.
+
+### Five-step analysis
+
+1.  **Simple Regression (1981)**
+
+    -   A basic regression is run using only the *"near the incinerator"* variable (yes/no).
+
+    -   This alone **cannot establish causality**, as it ignores other factors affecting prices.
+
+2.  **Baseline Check (1978)**
+
+    -   The same regression is repeated for **1978** (pre-incinerator) to see if price differences existed before construction.
+
+3.  **Difference in Averages (DiD Estimate)**
+
+    -   The causal effect is estimated by comparing the **average price change** (1981 vs. 1978) for homes near vs. far from the incinerator.
+
+4.  **Interaction Regression**
+
+    -   A regression with an **interaction term** (*near incinerator × year*) tests whether the price drop is statistically significant.
+
+5.  **Adding Controls**
+
+    -   To improve accuracy, control variables (*house age, bathrooms, square footage, etc.*) are included in the regression.
+
+### Setting Up
+
+#### Load packages
+
+```{r}
+
+library(pacman)
+
+pacman::p_load('tidyverse', 'wooldridge', 'stargazer', 'ggplot2', 'broom', 'patchwork')
+```
+
+#### Load data
+
+```{r}
+
+data("kielmc")
+```
+
+### Analyzing the Data
+
+#### Simple Regression (1981)
+
+Theoretical model:
+
+$$
+\operatorname{price} = \beta_0 + \beta_1 \times \operatorname{nearinc} + \varepsilon
+$$
+
+Where `price` is the properties price, `beta zero` is the average price of properties away from the incinerator, `beta one` is an angular coefficient, and `nearinc` is a binary variable that assigns whether a property is close (1) or away (0).
+
+```{r}
+
+kielmc_1981 <- kielmc %>% 
+  filter(year == 1981)
+
+lm_1981 <- lm(price ~ nearinc, kielmc_1981)
+
+stargazer::stargazer(lm_1981,
+                     font.size = 'tiny',
+                     title = 'Simple Regression (1981): Price ~ Near Incinerator',
+                     header = FALSE,
+                     type = 'text')
+
+
+```
+
+The regressions identifies that properties near the incinerator are, in theory, 39,956 dollars cheaper than properties afar, with the baseline price for house afar being 131,902 dollars – a 30% price drop.
+
+However, **we cannot affirm causality** with a simple regression model. We need to run the same model, but for 1978 data.
+
+#### Baseline Check (1978)
+
+```{r}
+
+kielmc_1978 <- kielmc %>% 
+  filter(year == 1978)
+
+lm_1978 <- lm(price ~ nearinc, kielmc_1978)
+
+stargazer::stargazer(lm_1978,
+                     font.size = 'tiny',
+                     title = 'Simple Regression (1978): Price ~ Near Incinerator',
+                     header = FALSE,
+                     type = 'text')
+
+```
+
+As we can see, even before any rumors about the incinerator the average sale price of a property near the site was already \$18,824.37 lower than a property far from the incinerator.
+
+#### **Difference in Averages (DiD Estimate)**
+
+We cannot say that the construction of the incinerator itself caused the devaluation of properties. To find what was the causal effect of the construction on properties price, we have to do the diff-in-diff. The difference in `nearinc` is of \$58,780.50 – however, we also have the figure out whether this value is **statically significant** or not by running another regression.
+
+Theoretical model:
+
+$$
+\operatorname{price} = \beta_0 + \delta_0 D_t + \beta_1 T_i + \delta_1 (D_t \times T_i) + \varepsilon
+$$
+
+Where:
+
+-   **`β₀` (Intercept)**\
+    Represents the **baseline average price** of properties *far from the incinerator* in the **base year (1978)**.
+
+-   **`δ₀` (y81 coefficient)**\
+    Captures the **market-wide price change** between 1978 and 1981 for all properties, regardless of location.
+
+-   **`β₁` (`nearinc` coefficient)**\
+    Measures the **pre-existing price difference** between properties near vs. far from the incinerator site *before any treatment effect*.
+
+-   **`δ₁` (Interaction term: y81 × `nearinc`)**\
+    The **difference-in-differences estimator** quantifies the *additional price decline* specifically attributable to the incinerator's presence
+
+#### **Interaction Regression (1978 and 1981)**
+
+```{r}
+
+lm_kielmc <- lm(rprice ~ y81 + nearinc + y81nrinc, kielmc)
+
+stargazer::stargazer(lm_kielmc,
+                     font.size = 'tiny',
+                     title='Multiple Linear Regression',
+                     header=FALSE,
+                     type = 'text')
+```
+
+So, the causal effect of the construction of the incinerator is of \$11,863.900 but it is not statically significative. To improve our regression, we need to try to decrease the standard error (7,456.64). To do this, we can add more control variable to the regression.
+
+#### Adding Controls
+
+Kiel and McClain, according to Wooldridge) included additional property characteristics in their analysis for two key reasons. First, homes sold in 1978 likely had different features than those sold in 1981, so additional controls help account for these differences. Second, even when characteristics don't vary much between years, including them can reduce error variance and consequently lower standard errors (affecting t-statistics).
+
+Now let's examine our fourth model with control variables. Here, we'll only control for property age (plus age squared to capture non-linear valuation effects over time).
+
+Theoretical model:
+
+$$
+\text{price} = \beta_0 + \delta_0 \text{y81} + \beta_1 \text{nearinc} + \delta_1 (\text{y81} \times \text{nearinc} + \beta_2 \text{age} + \beta_3 \text{age}^2 + \varepsilon
+$$
+
+```{r}
+
+lm_kielmc_age <- lm(rprice ~ y81 + nearinc + y81nrinc + age + I(age^2), data = kielmc)
+
+stargazer::stargazer(lm_kielmc_age,
+                     font.size = 'tiny',
+                     title='Multiple Linear Regression',
+                     header=FALSE,
+                     type = 'text')
+```
+
+As the table shows, simply adding the age variable changes the R-squared, standard errors, and the magnitude of the y81 `nearinc` coefficient - which becomes statistically significant.
+
+We now include additional control variables following the book's example:
+
+-   Distance to state highway (`intst`)
+
+-   Lot size (`land`)
+
+-   Building area (`area`)
+
+-   Number of bedrooms (`rooms`)
+
+-   Number of bathrooms (`baths`)
+
+-   Property age (`age` + `age²`)
+
+This specification produces estimates closer to the initial uncontrolled model.
+
+$$
+\operatorname{price} = \beta_0 + \delta_0 \text{y81} + \beta_1 \text{nearinc} + \delta_1 (\text{y81} \times \text{nearinc}) + \beta_2 \text{intst} + \beta_3 \text{land} + \beta_4 \text{area} + \beta_5 \text{rooms} + \beta_6 \text{baths} + \beta_7 \text{age} + \beta_8 \text{age}^2 + \varepsilon
+$$
+
+```{r}
+
+lm_full <- lm(
+  price ~ y81 + nearinc + y81*nearinc + intst + land + area + 
+         rooms + baths + age + I(age^2),
+  data = kielmc
+)
+
+stargazer::stargazer(lm_full,
+                     font.size = 'tiny',
+                     title='Multiple Linear Regression',
+                     header=FALSE,
+                     type = 'text')
+```
+
+This model **estimates are preferred** due to their superior control of price-affecting factors and reduced standard errors, which strengthen the *t*-statistics and statistical significance of the estimated parameters. Notably, the `nearinc`coefficient has shrunk in magnitude and lost its statistical significance in this specification. This shift reveals that the additional property characteristics (lot size, rooms, bathrooms, etc.) now capture the most critical price determinants—meaning the apparent "near-incinerator penalty" in earlier models was actually driven by observable differences in property features rather than the incinerator itself. The results imply that previous specifications suffered from omitted variable bias, and the true causal effect of incinerator proximity (δ₁) must be interpreted conditional on these controls.
+
+```{r}
+
+model_kielmc <- lm(log(price) ~ y81 + nearinc + y81nrinc + log(intst) + log(land) + log(area) + rooms + baths + age + I(age^2), kielmc)
+
+stargazer::stargazer(model_kielmc,
+                     font.size = 'tiny',
+                     title='Multiple Linear Regression',
+                     header=FALSE,
+                     type = 'text')
+```
+
+Thus, it can be seen that the devaluation of the properties near the incinerator was **13.2%** after its construction.
+
+### Visualizations
+
+```{r}
+
+kielmc %>%
+  mutate(
+    period = ifelse(year == 1978, "Pre-Construction", "Post-Construction"),
+    proximity = ifelse(nearinc == 1, "Near Incinerator", "Far from Incinerator")
+  ) %>%
+  ggplot(aes(x = price, fill = proximity)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~period, scales = "free_y") +
+  labs(
+    title = "Property Price Distributions by Proximity",
+    subtitle = "Kernel density estimates",
+    x = "Price (USD)",
+    y = "Density",
+    fill = ""
+  ) +
+  scale_x_continuous(labels = scales::dollar) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+
+trend_data <- kielmc %>%
+  group_by(year, nearinc) %>%
+  summarize(mean_price = mean(price, na.rm = TRUE)) %>%
+  mutate(nearinc = factor(nearinc, labels = c("Far (>4.8km)", "Near (≤4.8km)")))
+
+ggplot(trend_data, aes(x = factor(year), y = mean_price, 
+                       color = nearinc, group = nearinc)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_vline(xintercept = "1981", linetype = "dashed", color = "red") +
+  labs(
+    title = "Parallel Trends Check: Property Prices Before/After Incinerator",
+    subtitle = "Dashed line marks incinerator construction start (1981)",
+    x = "Year",
+    y = "Average Price (USD)",
+    color = "Proximity"
+  ) +
+  scale_y_continuous(labels = scales::dollar) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+***Exercise and Solution Inspiration:*** Wooldrige (2016) and Fábio Rocha (2024)
